@@ -5,16 +5,19 @@
 
 extern crate slim_quick;
 
-//mod data_structures;
-//mod utils;
-use slim_quick::data_structures;
-use slim_quick::utils;
 
+extern crate ndarray;
 
 #[macro_use]
 extern crate lazy_static;
 
 extern crate rand;
+
+//mod data_structures;
+//mod utils;
+use slim_quick::data_structures;
+use slim_quick::utils;
+
 
 use std::io;
 use std::collections::HashMap;
@@ -34,6 +37,8 @@ extern crate time;
 use time::PreciseTime;
 
 
+extern crate bloomfilter;
+use bloomfilter::Bloom;
 
 
 
@@ -41,9 +46,9 @@ fn main(){
 
     //let seq = slim_quick::data_structures::Sequence::new(1234, 4);
 
-    let in_file_name = "/Users/mahdi/Desktop/seqs.fna".to_string();
+    let in_file_name = "/Users/mahdi/Desktop/100.fa".to_string();
 
-    let nb_seqs = 1510600;
+    let nb_seqs = 100;
     let kmer_size = 3;
     let subset_size = 15;
     let nb_subsets = 100usize;
@@ -51,7 +56,7 @@ fn main(){
 
     let max_number_sequences_in_sig = 500;   // max size of a signature before its thrown out
 
-    // Signatures with more max_sig_size sequences are dropped at the end of each iteration
+    // Signatures with more max_number_sequences_in_sig sequences are dropped at the end of each iteration
     let mut large_sigs: HashSet<String> = HashSet::new();
 
 
@@ -87,12 +92,16 @@ fn main(){
     // Equivalent to a Counter with {k -> count for k}
     let mut seen_cluster_definition: HashMultiSet<String> = HashMultiSet::new();
 
-    // to keep track of the bands in which a cluster was seen
-    // if we've already seen a cluster, we will not need to keep track of it again
-    // we will keep track of a cluster as its sequence representation
+    // we define a cluster as a set of sequences that belong to the same signature
+    // ex{seq1, seq72, seq34}
+    // If we've already seen a cluster, we will not need to keep track of it again, i.e.,
+    // we can discard its signature.
+    // We will keep track of a cluster as its sequence representation
     // TODO: Use unique log encoding function here to encode the representation of clusters
     // needs to make sure the sequences in a cluster are sorted.
     let mut string_rep_to_bands: HashMap<String, Vec<u16>> = HashMap::new();
+    //let mut string_rep_to_bands_bloomfilter =  Bloom::new(1000000000, 10000000);
+
 
     let mut signatures_to_remove: Vec<String> ;
 
@@ -106,64 +115,41 @@ fn main(){
 
         // will be used to remove large stage signatures before we remove
         // large signatures and singletons
-        let mut temp_signatures = data_structures::Signatures::new();
+        let mut temp_signatures_hash_map:HashMap<String, Vec<i32>> = HashMap::new();
+        //        keep track of temp Signatures temp_signatures as
+        //            signature => list of sequences
+        //        We don't need the subset since we have access to it as a variable in the list
+        // The final signatures in temp_signatures_hash_map that make it can then be added the
+        // to the permanent signatures list
+
         let mut signatures_to_remove: Vec<String> = Vec::new();
 
 
         let mut nb_sequences_processed = 0;
 
         for seq in &mut seqs.sequences {
+
             let sig_value = seq.compute_signature(&subset, subset_number);
-
-
             // ignore signature if it contains only empty values
             if sig_value == null_signature {
                 continue;
             }
 
-
             if !large_sigs.contains(&sig_value) {
-                // create the signature so that we can add it.
-                // better if we create the signature in or_insert()
+                temp_signatures_hash_map.entry(sig_value.clone()).or_insert(vec![]).push(seq.id);
 
-
-                if ! temp_signatures.signatures.contains_key(&sig_value){
-                    let mut signature: data_structures::Signature =
-                        data_structures::Signature::new(sig_value.clone(),
-                                                        max_number_sequences_in_sig,
-                                                        subset_number);
-                    temp_signatures.signatures.insert(sig_value.clone(), signature);
-                }
-            } else {
-                // signature is in large_sigs already so
-                // this sequence won't have a signature for this subset
-                // seq.sigIds[subsetNumber] = -1 as initialized
+            }else{
                 continue;
             }
 
 
-            let signature = temp_signatures.signatures.get_mut(&sig_value).unwrap();
+            if  temp_signatures_hash_map.get(&sig_value).unwrap().len() >= max_number_sequences_in_sig {
 
-            // if signature not too large
-            if signature.sequences.len() < max_number_sequences_in_sig {
+                temp_signatures_hash_map.remove(&sig_value);
+                large_sigs.insert(sig_value.clone());
 
-                signature.add_sequence(seq.id);
-                // TODO: instead of cloning signature_id, we can store a ref to the signature id
-                seq.add_signature_for_band(signature.signature_id.clone(), subset_number);
-
-                // String rep(resentation) is a comma del list of sequences_id
-                if signature.string_rep.len() > 0 {
-                    signature.string_rep.push_str(&format!(", {}", seq.id));
-                }else{
-                    signature.string_rep.push_str(&format!("{}", seq.id));
-                }
-            } else {
-                // remove the signature but also keep track of it so that we don't add to
-                // it again
-                signatures_to_remove.push(signature.signature_id.clone());
-
-                // if !large_sigs.contains(&signature.signature_id) {
-                large_sigs.insert(signature.signature_id.clone());
+                // TODO: ??????
+                // continue
 
             }
 
@@ -176,46 +162,48 @@ fn main(){
         }// Done processing all the sequencs for this band
 
 
-        // Just for status update purposes
-        if temp_signatures.signatures.len() < 10 {
-            println!("\t\tIn iteration {}, found {} signatures \n\t\t {:?}",
-                     subset_number, temp_signatures.signatures.len(), temp_signatures.signatures);
-        }else{
-            println!("\t\tIn iteration {}, found {} signatures",
-                     subset_number, temp_signatures.signatures.len());
-
-        }
+        println!("\t\tIn iteration {}, found {} signatures",
+                     subset_number, temp_signatures_hash_map.len());
+        println!("{:?}", temp_signatures_hash_map);
 
 
+        // remove signatures containing a single sequence
+        let nb_total_sigs_total = temp_signatures_hash_map.len();
 
-        // remove signatures containing a single sequence (singletons signatures) and sets value of sequences
-        //containing that signature to -1
-        let singleton_signatures = temp_signatures.remove_singletons();
-
-        println!("\t\tIn iteration {}, removing {} singletons", subset_number, singleton_signatures.len());
-        for signature in singleton_signatures {
-            seqs.remove_signature_from_sequences(signature)
-        }
+        temp_signatures_hash_map.retain(|_, ref v| v.len() > 1 );
+        // The number of singletons is the difference in size between old size and new size
+        let nb_singletons = nb_total_sigs_total - temp_signatures_hash_map.len();
+        println!("\t\tIn iteration {}, removing {} singletons", subset_number, nb_singletons);
 
 
         // Removing signatures that contain already seen clusters.
-        // TODO: find a better way to do this rather tha rely solely on cluster String encoding.
+        // TODO: find a better way to do this rather than rely solely on cluster String encoding
+
+//        println!("string_rep_to_bands contains {:?}", string_rep_to_bands_bloomfilter);
 
 
-        for (sig_string , temp_signature) in &temp_signatures.signatures {
+        for (sig_id, seqs_vector) in & temp_signatures_hash_map {
+            //println!("\t\t\tChecking if Signature was seen: {}", &temp_signature.string_rep);
+            let string_seqs_vector:Vec<String> = seqs_vector.iter().map(| &x | x.to_string()).collect();
+            let sig_string_rep = string_seqs_vector.join(",");
 
-            if string_rep_to_bands.contains_key(&temp_signature.string_rep)  {
+            if string_rep_to_bands.contains_key(&sig_string_rep)  {
+            //if string_rep_to_bands_bloomfilter.check(&temp_signature.string_rep)  {
 
                 // Since the signature was already seen, we can safely remove it here
-                signatures_to_remove.push(temp_signature.signature_id.clone());
+                signatures_to_remove.push((*sig_id).clone());
+                //println!("\t\t\t\tSeen:");
 
-
-                string_rep_to_bands.get_mut(&temp_signature.string_rep).unwrap().push(subset_number);
+                string_rep_to_bands.get_mut(&sig_string_rep).unwrap().push(subset_number);
 
             } else {
-                string_rep_to_bands.insert(temp_signature.string_rep.clone(), vec![subset_number]);
+                string_rep_to_bands.insert(sig_string_rep.clone(), vec![subset_number]);
+                //string_rep_to_bands_bloomfilter.set(&temp_signature.string_rep.clone());
+                //println!("\t\t\t\tNot seen:");
+
             }
-            seen_cluster_definition.insert(temp_signature.string_rep.clone());
+
+            seen_cluster_definition.insert(sig_string_rep.clone());
         }
 
 
@@ -223,24 +211,28 @@ fn main(){
         // assign the value -1 to all the sequences that have a sequence that will be removed
         println!("\t\tIn iteration {}, removing {} large or seen signatures",
                  subset_number, signatures_to_remove.len());
+
         for sig_value in &signatures_to_remove{
-            let signature: data_structures::Signature = temp_signatures.signatures.remove(sig_value).unwrap();
-            seqs.remove_signature_from_sequences(signature);
+            temp_signatures_hash_map.remove(sig_value);
         }
 
-
+        println!("2 Number of temp signatures is {}", temp_signatures_hash_map.len());
         // println!("\n\n\t\tseen_cluster_definition is: {:?}", seen_cluster_definition.distinct_elements());
-
         // println!("\t\tstring_rep_to_bands is: {:?}", string_rep_to_bands);
 
-        println!("--------------------------");
 
-        signatures.extend(temp_signatures);
+        println!("--------------------------");
+        // Here all the temp_signatures_hash_map seem legit. Create and add them to signatures collection;
+        for (sig_id, seqs_vector) in temp_signatures_hash_map {
+           let sig = slim_quick::data_structures::Signature::from_seq_list(sig_id.clone(), 4, seqs_vector);
+            signatures.signatures.insert(sig_id, sig);
+        }
+
+        // signatures.extend(temp_signatures);
         println!("\t\tTotal number of signatures so far is {}", signatures.len());
 
         let mut time_now = PreciseTime::now();
         println!("iteration {} took {} seconds.", subset_number, it_time.to(time_now));
-
 
         subset_number += 1;
         // temp_signatures.clear() was automatically
@@ -252,9 +244,9 @@ fn main(){
     // make sure, at least for testing purposes, that the number of elems in
     // string_rep_to_bands is the same as the number of elements in seen_cluster_definition
     // TODO: Remove this later or run only when testing
-    assert_eq!(string_rep_to_bands.len(), seen_cluster_definition.distinct_elements().collect::<HashSet<_>>().len());
+    //assert_eq!(string_rep_to_bands.len(), seen_cluster_definition.distinct_elements().collect::<HashSet<_>>().len());
 
-    println!("After all iterations, total number of clusters is {}", string_rep_to_bands.len());
+    // println!("After all iterations, total number of clusters is {}", string_rep_to_bands.len());
 
     // return string_reps that were only seen once.
     // string_rep_to_bands = string_rep_to_bands.into_iter()
@@ -269,16 +261,16 @@ fn main(){
 
     println!("Finding the partitons");
     let my_partitions = slim_quick::find_partitions(nb_seqs, nb_subsets, seqs, &mut signatures);
-    // println!("My partitions are: {:?}", my_partitions);
-
-    let mut time_now = PreciseTime::now();
-    println!("Finding partition took {} seconds.", partition_time.to(time_now));
-
-
-
-    curr_time  = PreciseTime::now();
-
-    println!("Total runtime is {} seconds.", start_time.to(curr_time));
+//    // println!("My partitions are: {:?}", my_partitions);
+//
+//    let mut time_now = PreciseTime::now();
+//    println!("Finding partition took {} seconds.", partition_time.to(time_now));
+//
+//
+//
+//    curr_time  = PreciseTime::now();
+//
+//    println!("Total runtime is {} seconds.", start_time.to(curr_time));
 
 
 
