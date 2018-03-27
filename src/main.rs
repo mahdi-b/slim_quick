@@ -46,12 +46,12 @@ fn main(){
 
     //let seq = slim_quick::data_structures::Sequence::new(1234, 4);
 
-    let in_file_name = "/Users/mahdi/Desktop/100.fa".to_string();
+    let in_file_name = "/Users/mahdi/Desktop/20K.fa".to_string();
 
-    let nb_seqs = 100;
+    let nb_seqs = 1510600;
     let kmer_size = 3;
-    let subset_size = 15;
-    let nb_subsets = 100usize;
+    let subset_size = 11;
+    let nb_subsets = 512usize;
 
 
     let max_number_sequences_in_sig = 500;   // max size of a signature before its thrown out
@@ -69,7 +69,7 @@ fn main(){
 
     // load and parse sequences from file
     let mut seqs = data_structures::Sequences::new(nb_seqs);
-    seqs.load_sequences_from(in_file_name, kmer_size);
+    seqs.load_sequences_from(in_file_name, kmer_size, nb_subsets);
     let mut curr_time = PreciseTime::now();
     println!("parsing took {} seconds.", start_time.to(curr_time));
 
@@ -164,7 +164,7 @@ fn main(){
 
         println!("\t\tIn iteration {}, found {} signatures",
                      subset_number, temp_signatures_hash_map.len());
-        println!("{:?}", temp_signatures_hash_map);
+        ////// println!("{:?}", temp_signatures_hash_map);
 
 
         // remove signatures containing a single sequence
@@ -203,7 +203,7 @@ fn main(){
 
             }
 
-            seen_cluster_definition.insert(sig_string_rep.clone());
+            seen_cluster_definition.insert(sig_string_rep);
         }
 
 
@@ -216,17 +216,30 @@ fn main(){
             temp_signatures_hash_map.remove(sig_value);
         }
 
-        println!("2 Number of temp signatures is {}", temp_signatures_hash_map.len());
+        println!("The Number of temp signatures is {}", temp_signatures_hash_map.len());
         // println!("\n\n\t\tseen_cluster_definition is: {:?}", seen_cluster_definition.distinct_elements());
         // println!("\t\tstring_rep_to_bands is: {:?}", string_rep_to_bands);
 
 
         println!("--------------------------");
+
         // Here all the temp_signatures_hash_map seem legit. Create and add them to signatures collection;
         for (sig_id, seqs_vector) in temp_signatures_hash_map {
-           let sig = slim_quick::data_structures::Signature::from_seq_list(sig_id.clone(), 4, seqs_vector);
+
+            let sig = slim_quick::data_structures::Signature::from_seq_list(sig_id.clone(), 0, seqs_vector);
+
             signatures.signatures.insert(sig_id, sig);
+
+
         }
+
+
+//        for (sig_id, signature) in &signatures.signatures{
+//            for tempSeq in &signature.sequences {
+//                 seqs.sequences[*tempSeq as usize].signatures[signature.subset_number as usize] = sig_id.clone();
+//            }
+//        }
+
 
         // signatures.extend(temp_signatures);
         println!("\t\tTotal number of signatures so far is {}", signatures.len());
@@ -237,8 +250,9 @@ fn main(){
         subset_number += 1;
         // temp_signatures.clear() was automatically
 
-    }
 
+
+    }
 
 
     // make sure, at least for testing purposes, that the number of elems in
@@ -259,8 +273,31 @@ fn main(){
 
     let mut partition_time = PreciseTime::now();
 
+    for x in seen_cluster_definition.distinct_elements(){
+        println!("{}::{}", x, seen_cluster_definition.count_of(x.clone()));
+
+    }
+    println!("\n\n\n----------------------------------------\n\n\n");
+    println!("Before removing bad signatures {:?}", seqs.sequences);
+    for (sigString, sig) in &signatures.signatures{
+
+        if seen_cluster_definition.count_of(sig.string_rep.clone()) > 1{
+
+            println!("{}", sig.string_rep);
+            println!("{}", seen_cluster_definition.count_of(sig.string_rep.clone()));
+
+            for tempSeq in &signatures.signatures[sigString].sequences {
+                seqs.sequences[*tempSeq as usize].signatures.push(sigString.clone());
+            }
+
+        }
+    }
+
+    println!("After removing bad signatures {:?}", seqs.sequences);
+    println!("my Seen clusters are");
+
     println!("Finding the partitons");
-    let my_partitions = slim_quick::find_partitions(nb_seqs, nb_subsets, seqs, &mut signatures);
+    let my_partitions = slim_quick::find_partitions_v2(nb_seqs, nb_subsets, seqs, &mut signatures);
 //    // println!("My partitions are: {:?}", my_partitions);
 //
 //    let mut time_now = PreciseTime::now();

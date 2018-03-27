@@ -31,6 +31,8 @@ pub fn find_partitions(nb_sequences: usize, nb_bands: usize,
 
     println!("{:?}", sigs.signatures);
 
+    println!("{:?}", seqs);
+
     let mut partitions: Vec<i32>  = vec![-1; nb_sequences as usize];
 
     let mut my_queue: BinaryHeap<usize> =  BinaryHeap::new();
@@ -61,6 +63,7 @@ pub fn find_partitions(nb_sequences: usize, nb_bands: usize,
             // For each signature that this sequence is involved in
             // get all the other sequences that are in the same signatures
             for band_number in 0..nb_bands {
+
                 let sig_id:String = seqs.sequences[new_seq_id as usize].signatures[band_number].to_string();
 
 //                println! ("Signatures for seq_id {} are {:?}", new_seq_id, seqs.sequences[new_seq_id as usize].signatures);
@@ -115,6 +118,106 @@ pub fn find_partitions(nb_sequences: usize, nb_bands: usize,
 
     return partitions;
 }
+
+
+
+// This version finds partitions based on the temp_signatures_hash_map
+pub fn find_partitions_v2(nb_sequences: usize, nb_bands: usize,
+                       seqs: data_structures::Sequences, sigs: &mut data_structures::Signatures)
+                       -> Vec<i32> {
+    //TODO check that len of seqs == nb_sequences
+
+    println!("I have passed along to find_partitions {} sequences and {} signatures", seqs.sequences.len(), sigs.signatures.len());
+
+    println!("{:?}", sigs.signatures);
+
+    println!("{:?}", seqs);
+
+    let mut partitions: Vec<i32>  = vec![-1; nb_sequences as usize];
+
+    let mut my_queue: BinaryHeap<usize> =  BinaryHeap::new();
+
+    let mut neighbors_set: HashSet<i32> = HashSet::new();
+    //let mut neighborhood_count: HashMap<u32, u16> = HashMap::new();
+
+    let mut next_partiton_id = 0; // nbPartitions > max int value??
+
+    for i  in 0..nb_sequences {
+
+        if partitions[i] == -1 {
+            // Assign it to its own cluster
+            // Cannot belong to a previous cluster, or else it would have been labeled through another sequence
+            partitions[i] = next_partiton_id;
+            next_partiton_id+=1;
+        } else {
+            // Was already assigned as part of another sequence
+            continue;
+        }
+        // Add the sequence to a queue so as to inspect its children
+        my_queue.push(i);
+
+        while ! my_queue.is_empty() {
+
+            let new_seq_id:i32 = my_queue.pop().unwrap() as i32;
+
+            // For each signature that this sequence is involved in
+            // get all the other sequences that are in the same signatures
+            for sig_id in &seqs.sequences[new_seq_id as usize].signatures {
+
+
+//                println! ("Signatures for seq_id {} are {:?}", new_seq_id, seqs.sequences[new_seq_id as usize].signatures);
+//                println!("Inspecting sig_id {} ", sig_id);
+//                println!("Identifying the neighbors of {:?} ", sig.sequences);
+
+                if sig_id == "-1"{
+                    // signature was deleted of has already been visited
+                    continue;
+                }
+                let sig = sigs.signatures.get_mut(sig_id).unwrap();
+
+
+
+                if sig.visited == true {
+                    // signature was deleted of has already been visited
+                    continue;
+                }
+
+
+
+
+                // TODO: fix to start at the index of the sequence
+                // We start at the position where we found the sequence,  since all sequences
+                // before it would have been assigned already.
+                // Given that seqIds are incremental we are sure
+                // that any sequence before it has already been assigned to a partition
+                for seq_idx in 0..sig.sequences.len() {
+                    let seq_sig = sig.sequences[seq_idx];
+                    if seq_sig != new_seq_id && partitions[seq_sig as usize] == -1 {
+                        // Sequence was not assigned to a cluster
+                        // so add it to the queue to process other sequences in its cluster
+                        neighbors_set.insert(seq_sig);
+                    }
+                }
+                sig.visited = true;
+            }
+            // Now that we have all the neighbors in the same signature as this one,
+            // Assign them all to the same signature as sequence i
+            // and add them to the queue so that we can process their neighbors
+            for neighbor_of_i in neighbors_set.iter() {
+                partitions[*neighbor_of_i as usize] = partitions[i as usize];
+                // cout << *it << endl;
+                my_queue.push(*neighbor_of_i as usize);
+            }
+
+            neighbors_set.clear();
+
+        }
+    }
+    println!("partitions is {:?}", partitions);
+
+    return partitions;
+}
+
 
 
 mod test {
@@ -179,7 +282,7 @@ mod test {
 
 
 
-            find_partitions(3, 3, seqs, &mut sigs);
+            find_partitions_v2(3, 3, seqs, &mut sigs);
 
 
 //            assert_eq!(1,0);

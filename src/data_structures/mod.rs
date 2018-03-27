@@ -37,7 +37,7 @@ impl Signature{
     pub fn from_seq_list(signature_id: String, subset_number: u16, sequences: Vec<i32>) -> Signature {
 
         let seq_strings: Vec<String> = sequences.iter().map(| x | x.to_string()).collect();
-        let string_rep:String = seq_strings.join("-");
+        let string_rep:String = seq_strings.join(",");
 
         Signature {
             signature_id: signature_id,
@@ -229,14 +229,14 @@ pub struct Sequences{
 }
 
 
-impl Sequences{
+impl Sequences {
     pub fn new(nb_sequences: usize) -> Sequences{
         let seqs = Sequences{sequences: Vec::with_capacity(nb_sequences)};
         println!("Creating the list of sequences");
         seqs
     }
 
-    pub fn load_sequences_from(& mut self, in_file_name: String, kmer_size: usize) {
+    pub fn load_sequences_from(& mut self, in_file_name: String, kmer_size: usize, nb_subsets: usize) {
 
         let reader = fasta::Reader::from_file(& in_file_name).unwrap_or_else(|err|{
             println!("Problem opening input file {}: {}", in_file_name, err);
@@ -251,6 +251,7 @@ impl Sequences{
                 id: record.id().unwrap().parse().unwrap(),
                 kmers_counts: Sequence::get_kmers_counts(String::from_utf8(record.seq().to_vec()).unwrap(), kmer_size),
                 signatures: Vec::new()
+                    // signatures: vec!["-1".to_string(); nb_subsets]
             };
 
             self.add_seq(seq);
@@ -535,7 +536,7 @@ mod test{
             let (nb_sequences, kmer_size) = (3, 2);
             let file_name = "/Users/mahdi/IdeaProjects/test_fasta_readers/data/test.fa".to_string();
             let mut seqs = Sequences::new(nb_sequences);
-            seqs.load_sequences_from(file_name, kmer_size);
+            seqs.load_sequences_from(file_name, kmer_size, 0);
             //println!("items in sequences are {:?}", seqs.sequences);
             assert_eq!(seqs.sequences.len(), 3);
             assert_eq!(seqs.sequences[0].id, 0);
