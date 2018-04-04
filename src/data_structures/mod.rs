@@ -87,6 +87,9 @@ impl Signatures{
         self.signatures.extend(temp_signatures.signatures)
     }
 
+
+
+
     pub fn clear(&mut self){
         self.signatures.clear();
     }
@@ -278,6 +281,19 @@ impl Sequences {
             self.sequences[seq_id as usize].signatures[signature.subset_number as usize] = missing.clone();
         }
     }
+
+    pub fn get_all_counts(&mut self) -> Vec<f64>{
+
+        let mut all_counts = vec![];
+
+        for seq in &self.sequences{
+            for c in &seq.kmers_counts {
+                all_counts.push(*c as f64);
+            }
+        }
+        all_counts
+    }
+
 
 
 }

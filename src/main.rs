@@ -5,8 +5,10 @@
 
 extern crate slim_quick;
 
-
+#[macro_use]
 extern crate ndarray;
+use ndarray::prelude::*;
+
 
 #[macro_use]
 extern crate lazy_static;
@@ -17,6 +19,7 @@ extern crate rand;
 //mod utils;
 use slim_quick::data_structures;
 use slim_quick::utils;
+
 
 
 use std::io;
@@ -40,18 +43,69 @@ use time::PreciseTime;
 extern crate bloomfilter;
 use bloomfilter::Bloom;
 
+use rand::{thread_rng, SeedableRng, sample, StdRng};
+
+//
+//fn getFilter(bands: Vec<Vec<u16>>, k=u8){
+//
+//    let nb_kemrs = 4u8.pow(k);
+//
+//    let  nb_subsets = bands.len();
+//    filter_mtx = Array::zeros((nb_kemrs, nb_subsets));
+//
+//    //TO DO: find a better way to do this?
+//    for (col, rows) in  bands.iter().enumerate:
+//        filter_mtx[[rows, col]] = 1;
+//    return np.row_stack((LOG_PRIMES[:nb_subsets].reshape(1,-1)[0], filter_mtx))
+//
+//
+//}
+
+
+
+fn logPrimesVect(nb_kmers: usize, ) -> Vec<f64>{
+
+    static PRIMES_257: [u16; 257] = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89, 97, 101, 103, 107, 109, 113, 127, 131, 137, 139, 149, 151, 157, 163, 167, 173, 179, 181, 191, 193, 197, 199, 211, 223, 227, 229, 233, 239, 241, 251, 257, 263, 269, 271, 277, 281, 283, 293, 307, 311, 313, 317, 331, 337, 347, 349, 353, 359, 367, 373, 379, 383, 389, 397, 401, 409, 419, 421, 431, 433, 439, 443, 449, 457, 461, 463, 467, 479, 487, 491, 499, 503, 509, 521, 523, 541, 547, 557, 563, 569, 571, 577, 587, 593, 599, 601, 607, 613, 617, 619, 631, 641, 643, 647, 653, 659, 661, 673, 677, 683, 691, 701, 709, 719, 727, 733, 739, 743, 751, 757, 761, 769, 773, 787, 797, 809, 811, 821, 823, 827, 829, 839, 853, 857, 859, 863, 877, 881, 883, 887, 907, 911, 919, 929, 937, 941, 947, 953, 967, 971, 977, 983, 991, 997, 1009, 1013, 1019, 1021, 1031, 1033, 1039, 1049, 1051, 1061, 1063, 1069, 1087, 1091, 1093, 1097, 1103, 1109, 1117, 1123, 1129, 1151, 1153, 1163, 1171, 1181, 1187, 1193, 1201, 1213, 1217, 1223, 1229, 1231, 1237, 1249, 1259, 1277, 1279, 1283, 1289, 1291, 1297, 1301, 1303, 1307, 1319, 1321, 1327, 1361, 1367, 1373, 1381, 1399, 1409, 1423, 1427, 1429, 1433, 1439, 1447, 1451, 1453, 1459, 1471, 1481, 1483, 1487, 1489, 1493, 1499, 1511, 1523, 1531, 1543, 1549, 1553, 1559, 1567, 1571, 1579, 1583, 1597, 1601, 1607, 1609, 1613, 1619, 1621];
+
+
+    let mut log_p: Vec<f64> = Vec::new();
+    for (i, val) in  PRIMES_257.iter().enumerate()  {
+        if i == nb_kmers{ break;}
+
+        log_p.push((*val as f64).log10());
+
+    }
+    log_p
+
+}
+
+pub fn get_random_samples(nb_kmers: usize, subset_size: usize, nb_subsets: usize, seed:Option<&[usize]>) -> Vec<f64> {
+
+    let mut bands_vec = vec![0.0f64; (nb_kmers * nb_subsets) as usize];
+    let mut rng = thread_rng();
+    for i in 0..nb_subsets {
+        for val in sample(&mut rng, 0..nb_kmers, subset_size){
+            //println!("subseet:{} val:{}", i, val);
+            let index = nb_subsets * val + i;
+            bands_vec[ index as usize] = 1.0;
+        }
+    }
+    return bands_vec;
+}
+
 
 
 fn main(){
 
     //let seq = slim_quick::data_structures::Sequence::new(1234, 4);
 
-    let in_file_name = "/Users/mahdi/Desktop/20K.fa".to_string();
+    let in_file_name = "/Users/mahdi/Desktop/seqs.fa".to_string();
 
     let nb_seqs = 1510600;
     let kmer_size = 3;
-    let subset_size = 11;
-    let nb_subsets = 512usize;
+    let subset_size = 4;
+    let nb_subsets = 128usize;
+    let nb_kmers = 4usize.pow(kmer_size as u32);
 
 
     let max_number_sequences_in_sig = 500;   // max size of a signature before its thrown out
@@ -73,12 +127,69 @@ fn main(){
     let mut curr_time = PreciseTime::now();
     println!("parsing took {} seconds.", start_time.to(curr_time));
 
+    // println!("Sequences is {:?}", seqs);
+
+
+
+    let all_counts = seqs.get_all_counts();
+    let counts_matrix = Array::from_shape_vec((nb_seqs, 64), all_counts).unwrap();
+
+    println!("Counts matrix shape size is {:?}", counts_matrix.shape());
+
+
+    let counts_augmented_matrix = stack![Axis(1), Array::ones((nb_seqs,1)) , counts_matrix];
+    //println!("counts_matrix {:?}", counts_matrix);
+    println!("Counts augmented shape size is {:?}", counts_augmented_matrix.shape());
+
+
+
+
+
 
 
 
     // generate bands (subsets)
     let bands = utils::get_random_samples(kmer_size, subset_size, nb_subsets, None);
-    println!("bands are {:?}", bands);
+    //println!("bands are {:?}", bands);
+
+    let bands_vec = get_random_samples(nb_kmers , subset_size, nb_subsets, None);
+
+    let filters_mtx = Array::from_shape_vec((nb_kmers,nb_subsets), bands_vec).unwrap();
+
+    let logPrimesVec = 	Array::from_shape_vec((nb_subsets, 1), logPrimesVect(nb_subsets)).unwrap();
+    //println!("logPrimesVec\n{:?}", logPrimesVec);
+
+
+    println!("-- {:?}", logPrimesVec.shape());
+    println!("-- {:?}", filters_mtx.shape());
+
+
+    let filters_mtx  = filters_mtx * &logPrimesVec.slice(s![0..nb_kmers, ..]);
+    println!("filters_mtx shape is \n{:?}", filters_mtx.shape());
+
+    let filters_mtx_augmented =  stack![Axis(0),  logPrimesVec.slice(s![0..nb_subsets, ..]).t(), filters_mtx];
+
+    println!("filters_mtx augumented shape is \n{:?}", filters_mtx_augmented.shape());
+
+    let start_time = PreciseTime::now();
+    let clusters = counts_augmented_matrix.dot(&filters_mtx_augmented);
+    let mut curr_time = PreciseTime::now();
+    println!("matrix multiplication took {} seconds.", start_time.to(curr_time));
+
+
+
+    println!("Clusters shape is \n{:?}", clusters.shape());
+    println!("Clusters are is \n\n{:?}", clusters);
+
+
+    panic!("Temporarily stop here");
+
+
+
+
+
+
+
     //panic!("I am prepamuruly dying to print output");
 
     // Where we will temporarily store signatures before processing them
@@ -164,7 +275,7 @@ fn main(){
 
         println!("\t\tIn iteration {}, found {} signatures",
                      subset_number, temp_signatures_hash_map.len());
-        ////// println!("{:?}", temp_signatures_hash_map);
+        ////// qprintln!("{:?}", temp_signatures_hash_map);
 
 
         // remove signatures containing a single sequence
