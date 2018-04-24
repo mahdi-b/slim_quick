@@ -2,6 +2,7 @@
 #![allow(unused_mut)]
 #![allow(unused_imports)]
 //TODO: replace the word band with subset throughout the code
+use std::collections::btree_map::BTreeMap;
 
 extern crate slim_quick;
 
@@ -95,20 +96,22 @@ pub fn get_random_samples(nb_kmers: usize, subset_size: usize, nb_subsets: usize
 
 
 
-fn main(){
+fn main() {
 
     //let seq = slim_quick::data_structures::Sequence::new(1234, 4);
 
-    let in_file_name = "/Users/mahdi/Desktop/seqs.fa".to_string();
+    let in_file_name = "/Users/mahdi/Desktop/100.fa".to_string();
+    //let in_file_name = "/Users/mahdi/Desktop/seqs.fa".to_string();
 
-    let nb_seqs = 1510600;
+    let nb_seqs = 100;
+    //let nb_seqs = 1510600;
     let kmer_size = 3;
-    let subset_size = 4;
-    let nb_subsets = 128usize;
+    let subset_size = 13;
+    let nb_subsets = 256usize;
     let nb_kmers = 4usize.pow(kmer_size as u32);
 
 
-    let max_number_sequences_in_sig = 500;   // max size of a signature before its thrown out
+    let max_number_sequences_in_sig = 400;   // max size of a signature before its thrown out
 
     // Signatures with more max_number_sequences_in_sig sequences are dropped at the end of each iteration
     let mut large_sigs: HashSet<String> = HashSet::new();
@@ -116,9 +119,13 @@ fn main(){
 
     let null_signature = "0.0".to_string();  // handle this better in case it's not 0.0
 
-    let mut signatures  = slim_quick::data_structures::Signatures::new();
+    let mut signatures = slim_quick::data_structures::Signatures::new();
 
     let start_time = PreciseTime::now();
+
+    //*************************************************
+    // Load sequences in seqs
+    //*************************************************
 
 
     // load and parse sequences from file
@@ -127,9 +134,12 @@ fn main(){
     let mut curr_time = PreciseTime::now();
     println!("parsing took {} seconds.", start_time.to(curr_time));
 
-    // println!("Sequences is {:?}", seqs);
+    // println!("The loaded sequences are {:?}", seqs);
 
 
+    //*************************************************
+    // Generate sequence counts Matrix
+    //*************************************************
 
     let all_counts = seqs.get_all_counts();
     let counts_matrix = Array::from_shape_vec((nb_seqs, 64), all_counts).unwrap();
@@ -137,65 +147,175 @@ fn main(){
     println!("Counts matrix shape size is {:?}", counts_matrix.shape());
 
 
+    // Add a first column of ONEs that will be multiplied by log_primes, the unique column signature offset
     let counts_augmented_matrix = stack![Axis(1), Array::ones((nb_seqs,1)) , counts_matrix];
     //println!("counts_matrix {:?}", counts_matrix);
     println!("Counts augmented shape size is {:?}", counts_augmented_matrix.shape());
 
+    //*************************************************
+    // Generate signatures Matrix
+    //*************************************************
 
 
-
-
-
-
-
-    // generate bands (subsets)
+    // TODO: clean up and remove this?
+    // It was used pre-vectorization
     let bands = utils::get_random_samples(kmer_size, subset_size, nb_subsets, None);
-    //println!("bands are {:?}", bands);
 
-    let bands_vec = get_random_samples(nb_kmers , subset_size, nb_subsets, None);
+    // Bands_vec is a 0,1 vector of bands of size (nb_kmers x nb_subsets)
+    let bands_vec = get_random_samples(nb_kmers, subset_size, nb_subsets, None);
+    //*// println!("bands_vec is {:?}", bands_vec);
 
-    let filters_mtx = Array::from_shape_vec((nb_kmers,nb_subsets), bands_vec).unwrap();
+    // binary marix that will be used for filtering
+    // Every column is a mask with exactly subset_size ones and (nb_kemers - subset_size) 0
+    let filters_mtx = Array::from_shape_vec((nb_kmers, nb_subsets), bands_vec).unwrap();
 
-    let logPrimesVec = 	Array::from_shape_vec((nb_subsets, 1), logPrimesVect(nb_subsets)).unwrap();
+    // Column vector of primes
+    // we make it of size nb_subset because will need the value for creating column
+    // Specific signatures
+
+    // We need this as a column verctor so that we can use it to update the filters matrix
+    let logPrimesVec = Array::from_shape_vec((nb_subsets, 1), logPrimesVect(nb_subsets)).unwrap();
     //println!("logPrimesVec\n{:?}", logPrimesVec);
 
 
-    println!("-- {:?}", logPrimesVec.shape());
-    println!("-- {:?}", filters_mtx.shape());
+    //*//println!("-- {:?}", logPrimesVec.shape());
+    //*//println!("-- {:?}", filters_mtx.shape());
 
-
-    let filters_mtx  = filters_mtx * &logPrimesVec.slice(s![0..nb_kmers, ..]);
+    // Multiple the logPrimes by the 0,1 values
+    // we multiply (using boradcasting) to get the log values
+    // assigned to the ONEs in the matrix
+    let filters_mtx = filters_mtx * &logPrimesVec.slice(s![0..nb_kmers, ..]);
     println!("filters_mtx shape is \n{:?}", filters_mtx.shape());
 
-    let filters_mtx_augmented =  stack![Axis(0),  logPrimesVec.slice(s![0..nb_subsets, ..]).t(), filters_mtx];
+    // We add a row of logs to guarantee unique signatures
+    // This is not going to work... we need logs that haven't been used in the matrix
+    // Otherwise we can end up with same sig for seq with diff counts
+    let filters_mtx_augmented = stack![Axis(0),  logPrimesVec.slice(s![0..nb_subsets, ..]).t(), filters_mtx];
 
     println!("filters_mtx augumented shape is \n{:?}", filters_mtx_augmented.shape());
 
+
+    //*************************************************
+    // Do Matrix Multiplication
+    //*************************************************
+
+
     let start_time = PreciseTime::now();
     let clusters = counts_augmented_matrix.dot(&filters_mtx_augmented);
+
+    //let clusters = clusters.t();
+
     let mut curr_time = PreciseTime::now();
     println!("matrix multiplication took {} seconds.", start_time.to(curr_time));
 
 
-
     println!("Clusters shape is \n{:?}", clusters.shape());
-    println!("Clusters are is \n\n{:?}", clusters);
 
+    //*************************************************
+    // parsing resulting clusters matrix
+    //*************************************************
+
+
+    let start_time = PreciseTime::now();
+
+    let mut signatures = data_structures::Signatures::new();
+    let mut seen_cluster_definition: HashMultiSet<String> = HashMultiSet::new();
+    let mut sig_string_rep: HashSet<String> = HashSet::new();
+
+
+    let mut clusters_seen = 0;
+    // Loop over the clusters, one subset at a time
+    for sigs in clusters.axis_iter(Axis(1)) {
+        //TOD
+        let mut temp_signatures_hash_map: HashMap<String, Vec<i32>> = HashMap::new();
+        let mut j = 0;
+        for sig in sigs {
+            temp_signatures_hash_map.entry(sig.to_string()).or_insert(vec![]).push(j);
+            j += 1;
+        }
+        // Dropping singletons and large signatures
+        //println!("{:?}", temp_signatures_hash_map);
+        for (sig, seqs_vector) in temp_signatures_hash_map {
+            let clusterSize = seqs_vector.len();
+            if (1 < clusterSize) && (clusterSize < max_number_sequences_in_sig) {
+
+                // getting string rep of the cluster so that we can
+                // test if it already exists
+                let seq_strings: Vec<String> = seqs_vector.iter().map(| x | x.to_string()).collect();
+                let string_rep = seq_strings.join(",");
+
+
+                // if signature not seen, then create it.
+                if !sig_string_rep.contains(&string_rep) {
+
+                    let sigObj = slim_quick::data_structures::Signature::from_seq_list_with_str_rep(
+                        sig.clone(),
+                        0,
+                        seqs_vector,
+                        string_rep);
+
+                    seen_cluster_definition.insert(sigObj.string_rep.clone());
+                    signatures.signatures.insert(sig.clone(), sigObj);
+                    let sig_str = signatures.signatures[&sig].string_rep.clone();
+
+                    sig_string_rep.insert(sig_str);
+
+                }
+            }
+        }
+        clusters_seen +=1;
+        println!("{}", clusters_seen);
+
+    }
+
+    let mut curr_time = PreciseTime::now();
+    println!("Parsing of clusters matrix took {} seconds.", start_time.to(curr_time));
+
+    //*************************************************
+    // Creating Sequences from Signatures
+    //*************************************************
+    println!("Started Parsing Signatures");
+    let start_time = PreciseTime::now();
+
+    //    for sigObj in signatures.signatures.values() {
+    //       println!("12345: {}", sigObj.string_rep);
+    //    }
+
+    for (sig, sig_obj) in &signatures.signatures{
+
+        for seq_id in & sig_obj.sequences {
+            seqs.sequences[*seq_id as usize].signatures.push(sig.clone());
+
+        }
+    }
+
+    let mut curr_time = PreciseTime::now();
+    println!("Parsing of signatures took {} seconds.", start_time.to(curr_time));
+
+    //*************************************************
+    // Finding the partitons
+    //*************************************************
+
+    println!("Started Finding partitions");
+
+    let start_time = PreciseTime::now();
+
+    let my_partitions = slim_quick::find_partitions_v2(nb_seqs, nb_subsets, seqs, &mut signatures);
+
+    let mut curr_time = PreciseTime::now();
+
+    println!("Finding partitions took {} seconds.", start_time.to(curr_time));
+
+    //*************************************************
+    // End here
+    //*************************************************
 
     panic!("Temporarily stop here");
 
 
 
-
-
-
-
-    //panic!("I am prepamuruly dying to print output");
-
     // Where we will temporarily store signatures before processing them
     // to remove bad ones
-    let mut signatures = data_structures::Signatures::new();
-
 
 
     let mut subset_number = 0;
@@ -405,10 +525,11 @@ fn main(){
     }
 
     println!("After removing bad signatures {:?}", seqs.sequences);
+
     println!("my Seen clusters are");
 
     println!("Finding the partitons");
-    let my_partitions = slim_quick::find_partitions_v2(nb_seqs, nb_subsets, seqs, &mut signatures);
+    //let my_partitions = slim_quick::find_partitions_v2(nb_seqs, nb_subsets, seqs, &mut signatures);
 //    // println!("My partitions are: {:?}", my_partitions);
 //
 //    let mut time_now = PreciseTime::now();

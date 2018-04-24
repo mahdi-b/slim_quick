@@ -29,9 +29,9 @@ pub fn find_partitions(nb_sequences: usize, nb_bands: usize,
 
     println!("I have passed along to find_partitions {} sequences and {} signatures", seqs.sequences.len(), sigs.signatures.len());
 
-    println!("{:?}", sigs.signatures);
+    //println!("{:?}", sigs.signatures);
 
-    println!("{:?}", seqs);
+    //println!("{:?}", seqs);
 
     let mut partitions: Vec<i32>  = vec![-1; nb_sequences as usize];
 
@@ -127,11 +127,11 @@ pub fn find_partitions_v2(nb_sequences: usize, nb_bands: usize,
                        -> Vec<i32> {
     //TODO check that len of seqs == nb_sequences
 
-    println!("I have passed along to find_partitions {} sequences and {} signatures", seqs.sequences.len(), sigs.signatures.len());
+    //println!("I have passed along to find_partitions {} sequences and {} signatures", seqs.sequences.len(), sigs.signatures.len());
 
-    println!("{:?}", sigs.signatures);
+    //println!("{:?}", sigs.signatures);
 
-    println!("{:?}", seqs);
+    //println!("{:?}", seqs);
 
     let mut partitions: Vec<i32>  = vec![-1; nb_sequences as usize];
 

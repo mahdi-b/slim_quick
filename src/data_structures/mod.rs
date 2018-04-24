@@ -48,6 +48,19 @@ impl Signature{
         }
     }
 
+    pub fn from_seq_list_with_str_rep(signature_id: String, subset_number: u16, sequences: Vec<i32>, string_rep: String) -> Signature {
+
+
+        Signature {
+            signature_id: signature_id,
+            visited: false,
+            string_rep: string_rep,
+            sequences: sequences,
+            subset_number: subset_number
+        }
+    }
+
+
 
     pub fn add_sequence(&mut self, seq_id:i32){
         self.sequences.push(seq_id);
